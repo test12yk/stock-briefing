@@ -27,14 +27,23 @@ except ImportError:
         "실제 보유 종목으로 채워 넣으세요: cp my_portfolio.example.py my_portfolio.py"
     )
 
+try:
+    from my_portfolio import MY_CASH
+except ImportError:
+    MY_CASH = []
+
 
 def fetch_price(ticker: str):
-    """현재가를 반환. 실패하면 None."""
+    """현재가를 반환. 실패(빈 데이터·NaN 포함)하면 None."""
     try:
         df = yf.Ticker(ticker).history(period="5d")
         if df is None or df.empty:
             return None
-        return float(df["Close"].iloc[-1])
+        price = float(df["Close"].iloc[-1])
+        if price != price:  # NaN (야후 쪽 데이터 결측 — 가끔 빈 df 대신 NaN row가 옴)
+            print(f"  ⚠ 시세 조회 실패 ({ticker}): 최신 종가가 NaN")
+            return None
+        return price
     except Exception as e:
         print(f"  ⚠ 시세 조회 실패 ({ticker}): {e}")
         return None
@@ -54,7 +63,19 @@ def build_report():
         if price is not None:
             prices[ticker] = price
 
-    total_value = sum(qty_by_ticker[t] * prices[t] for t in prices)
+    # currency가 "USD"인 종목은 달러 시세를 원화로 환산 (환율 조회 실패 시 시세 조회 실패로 처리)
+    usd_tickers = {h["ticker"] for h in MY_HOLDINGS if h.get("currency") == "USD"}
+    if usd_tickers:
+        usdkrw = fetch_price("KRW=X")
+        for ticker in usd_tickers & prices.keys():
+            if usdkrw is None:
+                del prices[ticker]
+            else:
+                prices[ticker] *= usdkrw
+
+    stock_value = sum(qty_by_ticker[t] * prices[t] for t in prices)
+    cash_value = sum(c["amount"] for c in MY_CASH)
+    total_value = stock_value + cash_value
     failed = sorted({name_by_ticker[t] for t in qty_by_ticker if t not in prices})
 
     # 2) 매입단가가 있는 포지션(entry 단위)만 실제 손익 계산
@@ -87,6 +108,10 @@ def build_report():
     lines = [
         f"💼 실제 보유자산 리포트 ({today})",
         f"총평가액: {total_value:,.0f}원",
+    ]
+    if cash_value:
+        lines.append(f"  (주식·ETF {stock_value:,.0f} + 현금 {cash_value:,.0f})")
+    lines += [
         f"손익확인 {len(costed_positions)}종목 기준 - 매입 {total_invested:,.0f} → 평가 {total_current:,.0f} "
         f"({total_pnl:+,.0f}원, {total_pnl_pct:+.1f}%)",
     ]

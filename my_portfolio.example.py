@@ -12,6 +12,10 @@ my_portfolio.py는 .gitignore에 포함되어 있어 git에 올라가지 않습�
   kind: "주식" 또는 "ETF"
   qty: 보유 수량
   avg_price: 매입단가(원). 모르면 None으로 두면 평가액엔 포함되고 손익 계산에서는 제외됨
+  currency: (선택) "USD"면 야후 시세(달러)를 USD/KRW 환율로 원화 환산. avg_price는 항상 원화로 입력
+
+MY_CASH(선택): 시세 조회 없이 총평가액에만 합산할 현금(예: IRP 예수금)
+  account: 계좌 구분, name: 표시 이름, amount: 금액(원)
 """
 MY_HOLDINGS = [
     {'account': 'ISA', 'name': '삼성전자', 'ticker': '005930.KS', 'kind': '주식', 'qty': 10, 'avg_price': 70000},
@@ -19,4 +23,9 @@ MY_HOLDINGS = [
     {'account': 'ISA', 'name': 'TIGER 미국S&P500', 'ticker': '360750.KS', 'kind': 'ETF', 'qty': 50, 'avg_price': 20000},
     {'account': '연금계좌', 'name': 'KODEX 미국나스닥100', 'ticker': '379810.KS', 'kind': 'ETF', 'qty': 30, 'avg_price': 25000},
     {'account': '연금계좌', 'name': 'TIGER KRX금현물', 'ticker': '0072R0.KS', 'kind': 'ETF', 'qty': 20, 'avg_price': 14000},
+    {'account': '해외계좌', 'name': '애플', 'ticker': 'AAPL', 'kind': '주식', 'qty': 1, 'avg_price': 250000, 'currency': 'USD'},
+]
+
+MY_CASH = [
+    {'account': 'IRP', 'name': 'IRP 현금', 'amount': 1000000},
 ]
