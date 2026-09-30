@@ -48,6 +48,7 @@ AGENT_CONFIG = {
     "max_total_seconds": 180,                 # 에이전트 전체 실행 시간 제한(3분) - 초과 시 폴백
     "per_call_timeout_seconds": 30,           # API 호출/도구 호출 1건당 타임아웃
     "rpm_retry_max_wait_seconds": 60,         # 분당 한도(429) 초과 시 최대 이만큼만 기다렸다가 1회 재시도
+    "daily_movers_count": 7,                  # 당일 등락률 절대값 상위 몇 종목을 에이전트 조사 대상으로 넘길지
     "memory_days": 3,                         # 최근 며칠치 브리핑을 컨텍스트로 참고할지
     "log_dir": "logs",                        # logs/agent_runs, logs/briefing_history 하위에 생성
 }

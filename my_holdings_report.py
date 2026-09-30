@@ -103,6 +103,7 @@ def compute_positions():
         "prices": prices, "stock_value": stock_value, "cash_value": cash_value,
         "total_value": total_value, "failed": failed,
         "costed_positions": costed_positions, "no_cost": no_cost,
+        "tickers": list(qty_by_ticker.keys()),  # 중복 제거된 보유 티커 전체 (agent_briefing.py의 당일 등락률 선정용)
     }
 
 
@@ -122,6 +123,18 @@ def build_report():
     gainers = ranked[:top_n]
     losers = sorted(costed_positions, key=lambda p: p["pnl_pct"])[:top_n]
 
+    # 같은 종목명이 여러 계좌에 걸쳐 있으면(예: 삼성전자를 ISA/일반계좌 둘 다 보유) 어느 계좌인지
+    # 구분되게 계좌명을 붙인다. 계좌가 하나뿐인 종목명은 지금처럼 이름만 표시.
+    accounts_by_name = defaultdict(set)
+    for p in costed_positions:
+        accounts_by_name[p["name"]].add(p["account"])
+
+    def _format_position(p):
+        label = p["name"]
+        if len(accounts_by_name[p["name"]]) > 1:
+            label += f" [{p['account']}]"
+        return f"  {label} {p['pnl_pct']:+.1f}% ({p['pnl_amount']:+,.0f}원)"
+
     today = datetime.now().strftime("%Y-%m-%d")
     lines = [
         f"💼 실제 보유자산 리포트 ({today})",
@@ -137,11 +150,11 @@ def build_report():
     if gainers:
         lines.append("\n🏆 수익률 top:")
         for p in gainers:
-            lines.append(f"  {p['name']} {p['pnl_pct']:+.1f}% ({p['pnl_amount']:+,.0f}원)")
+            lines.append(_format_position(p))
     if losers:
         lines.append("\n💧 수익률 bottom:")
         for p in losers:
-            lines.append(f"  {p['name']} {p['pnl_pct']:+.1f}% ({p['pnl_amount']:+,.0f}원)")
+            lines.append(_format_position(p))
 
     if failed:
         lines.append(f"\n⚠ 시세 조회 실패: {', '.join(failed)}")

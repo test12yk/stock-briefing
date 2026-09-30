@@ -15,9 +15,10 @@ llm_client.py가 담당 - provider를 바꾸고 싶으면 그 파일만 손보�
 """
 import re
 import sys
+from collections import defaultdict
 from datetime import datetime
 
-from config import AGENT_CONFIG, KAKAO_CONFIG, MY_HOLDINGS_CONFIG
+from config import AGENT_CONFIG, KAKAO_CONFIG
 from my_holdings_report import build_report, compute_positions
 from agent_tools import TOOLS, execute_tool
 from agent_memory import save_briefing, save_test_run, load_recent_briefings
@@ -27,6 +28,7 @@ from kakao_notify import send_kakao_message
 
 NO_CAUSE_PHRASE = "확인된 원인 없음"
 NOT_INVESTIGATED_PHRASE = "변동 작음, 별도 조사 안 함"
+BUDGET_EXCEEDED_PHRASE = "10회 반복 한도로 미조사"
 
 SYSTEM_PROMPT = f"""당신은 개인 투자자를 위한 보유종목 브리핑 작성 보조입니다.
 
@@ -44,13 +46,18 @@ SYSTEM_PROMPT = f"""당신은 개인 투자자를 위한 보유종목 브리핑 
    이 단계에서는 아직 get_news나 get_dart_filings를 호출하지 마세요.
 2) get_price 결과에서 당일 등락률의 절대값이 2% 이상인 종목은, get_news와 get_dart_filings
    (국내 상장 종목만 - 해외 종목은 get_dart_filings 호출 자체를 생략해도 됨) 둘 다 반드시 호출해서
-   원인을 조사하세요.
+   원인을 조사하세요. 조사 대상 종목이 많아서 한 번의 응답에 모든 호출을 다 못 넣어도 괜찮습니다 -
+   도구는 총 10번의 반복(iteration)에 걸쳐 나눠서 호출할 수 있으니, 이번 응답에 다 못 넣었으면
+   다음 응답에서 이어서 마저 호출하세요. "도구 호출 제한"이나 "호출 횟수 부족" 같은 이유로
+   스스로 조사를 건너뛰지 마세요 - 정말 10번을 다 썼을 때만 그런 게 의미가 있습니다.
 3) 당일 등락률의 절대값이 2% 미만인 종목은, 별도로 조사가 필요하다고 판단될 때만 추가로 조사하세요.
    조사하지 않아도 됩니다.
-4) 각 종목에 대해 브리핑에 쓸 수 있는 원인 문구는 다음 두 가지뿐입니다:
+4) 각 종목에 대해 브리핑에 쓸 수 있는 원인 문구는 다음 세 가지뿐입니다:
    - "{NO_CAUSE_PHRASE}": 그 종목에 대해 get_news와 get_dart_filings를 **둘 다 호출**했지만
      뚜렷한 원인을 찾지 못했을 때만 쓸 수 있습니다. 조사 없이 이 문구를 쓰면 안 됩니다.
    - "{NOT_INVESTIGATED_PHRASE}": 등락률이 작아서(2% 미만) 별도로 조사하지 않은 종목에 쓰세요.
+   - "{BUDGET_EXCEEDED_PHRASE}": 등락률이 2% 이상이라 조사 대상이지만, 정말로 10번의 반복을
+     다 써서 더 이상 도구를 호출할 수 없을 때만 쓰세요 (드문 경우입니다).
 
 반드시 지킬 규칙:
 1. 도구 결과에 없는 수치(가격, 등락률, 금액)를 지어내지 마세요. 모르면 모른다고 쓰세요.
@@ -68,9 +75,13 @@ SYSTEM_PROMPT = f"""당신은 개인 투자자를 위한 보유종목 브리핑 
 
 
 def _build_user_prompt(movers_context: list, recent_briefings: list) -> str:
-    lines = ["오늘 조사 대상 종목입니다 (수량·평단가·현금·시세 정보는 제공하지 않습니다 - 시세는 get_price로 직접 확인하세요):"]
+    lines = ["오늘 조사 대상 종목입니다 (당일 등락률 절대값이 큰 순서, 수량·평단가·현금·시세 정보는 "
+              "제공하지 않습니다 - 시세는 get_price로 직접 확인하세요):"]
     for m in movers_context:
-        lines.append(f"- {m['name']} ({m['ticker']}): 보유손익 {m['pnl_pct']:+.1f}%")
+        line = f"- {m['name']} ({m['ticker']})"
+        if m.get("pnl_pct") is not None:
+            line += f": 보유손익 {m['pnl_pct']:+.1f}%"
+        lines.append(line)
 
     if recent_briefings:
         lines.append("\n최근 브리핑 (참고용 - 같은 이슈가 반복되면 간단히, 새로운 변화면 자세히 다루세요):")
@@ -81,18 +92,53 @@ def _build_user_prompt(movers_context: list, recent_briefings: list) -> str:
     return "\n".join(lines)
 
 
-def _build_movers_context(costed_positions: list) -> list:
-    top_n = MY_HOLDINGS_CONFIG.get("top_movers_count", 3)
-    ranked = sorted(costed_positions, key=lambda p: p["pnl_pct"], reverse=True)
-    gainers = ranked[:top_n]
-    losers = sorted(costed_positions, key=lambda p: p["pnl_pct"])[:top_n]
+def _build_movers_context(state: dict):
+    """반환: (LLM에 넘길 당일 등락률 상위 N개 무버 목록, '그 외 N종목' 요약 줄 또는 None).
 
-    # 상/하위가 겹칠 만큼 종목 수가 적을 때 중복 제거
-    movers_by_ticker = {p["ticker"]: p for p in gainers + losers}
-    return [
-        {"name": p["name"], "ticker": p["ticker"], "pnl_pct": p["pnl_pct"]}
-        for p in movers_by_ticker.values()
+    선정 자체는 코드로만 한다(LLM 미사용) - 전 보유 종목(중복 티커 제거)의 당일 등락률을
+    yfinance로 먼저 계산해서 절대값 기준 상위 daily_movers_count개만 에이전트에 넘긴다.
+    """
+    from agent_tools import get_daily_change_bulk
+    from my_portfolio import MY_HOLDINGS
+
+    name_by_ticker = {h["ticker"]: h["name"] for h in MY_HOLDINGS}  # 종목명 조회용 (costed_positions에 없는 티커 대비)
+
+    # 같은 티커가 여러 계좌에 걸쳐 있으면 계좌별 loss/gain을 합산해 종목 단위 pnl_pct 하나로 보여줌
+    agg = defaultdict(lambda: {"invested": 0.0, "current": 0.0})
+    for p in state["costed_positions"]:
+        a = agg[p["ticker"]]
+        a["invested"] += p["invested"]
+        a["current"] += p["current"]
+    pnl_by_ticker = {
+        t: (v["current"] - v["invested"]) / v["invested"] * 100 if v["invested"] else None
+        for t, v in agg.items()
+    }
+
+    changes = get_daily_change_bulk(state["tickers"])  # {ticker: daily_change_pct} - 조회 실패한 티커는 빠짐
+    ranked = sorted(changes.items(), key=lambda kv: abs(kv[1]), reverse=True)
+
+    top_n = AGENT_CONFIG["daily_movers_count"]
+    top_tickers = ranked[:top_n]
+    excluded = ranked[top_n:]
+
+    movers_context = [
+        {"name": name_by_ticker.get(t, t), "ticker": t, "pnl_pct": pnl_by_ticker.get(t)}
+        for t, _ in top_tickers
     ]
+
+    excluded_summary = None
+    if excluded:
+        excluded_over_2pct = [t for t, c in excluded if abs(c) >= 2.0]
+        if excluded_over_2pct:
+            # 상위 N개 캡 때문에 정말로 ±2% 이상인데도 빠진 종목이 있으면 "미만"이라고 잘못 요약하지 않는다.
+            excluded_summary = (
+                f"그 외 {len(excluded)}종목 중 {len(excluded_over_2pct)}종목은 등락률 ±2% 이상이지만 "
+                f"상위 {top_n}개 조사 대상에서 제외되어 이번 브리핑에는 포함되지 않았습니다."
+            )
+        else:
+            excluded_summary = f"그 외 {len(excluded)}종목 ±2% 미만"
+
+    return movers_context, excluded_summary
 
 
 def _verify_no_cause_claims(final_text: str, movers_context: list, tool_call_trace: list) -> list:
@@ -170,14 +216,17 @@ def main():
     if AGENT_CONFIG["enabled"]:
         try:
             state = compute_positions()
-            movers_context = _build_movers_context(state["costed_positions"])
+            movers_context, excluded_summary = _build_movers_context(state)
             recent = load_recent_briefings()
             user_prompt = _build_user_prompt(movers_context, recent)
             result = run_tool_loop(SYSTEM_PROMPT, TOOLS, user_prompt, tool_executor, recorder)
             tool_call_trace = result.tool_call_trace
             mode = "agent"
             fallback_reason = None
-            final_text = result.text if simulate_scenario else _combine_messages(fallback_text, result.text)
+            agent_text = result.text
+            if excluded_summary:  # 계산값이라 LLM한테 되받아쓰게 하지 않고 코드에서 바로 붙임
+                agent_text = f"{agent_text}\n\n{excluded_summary}"
+            final_text = agent_text if simulate_scenario else _combine_messages(fallback_text, agent_text)
             verification_warnings = _verify_no_cause_claims(result.text, movers_context, tool_call_trace)
         except Exception as e:
             print(f"⚠ 에이전트 실행 실패, 규칙 기반으로 폴백: {e}")

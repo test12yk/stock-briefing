@@ -28,6 +28,22 @@ def _run_with_timeout(fn, *args, **kwargs):
         return {"error": str(e)}
 
 
+def get_daily_change_bulk(tickers: list) -> dict:
+    """보유 종목 전체(중복 티커 제거된 목록)의 당일 등락률을 코드 레벨에서 미리 계산 -
+    "오늘 크게 움직인 종목 top 7"을 정하는 선정 단계에서만 쓰고, 이 값 자체는 LLM에
+    넘기지 않는다(에이전트는 get_price 도구로 스스로 다시 확인해야 함). 타임아웃 래핑은
+    안 함 - 에이전트 루프 시작 전에 순차 실행되는 준비 단계라 개별 실패는 그냥 건너뛴다."""
+    result = {}
+    for t in tickers:
+        try:
+            info = _get_price_impl(t)
+        except Exception:
+            continue
+        if isinstance(info, dict) and "daily_change_pct" in info:
+            result[t] = info["daily_change_pct"]
+    return result
+
+
 def _get_price_impl(ticker: str) -> dict:
     df = yf.Ticker(ticker).history(period="5d")
     if df is None or df.empty:
