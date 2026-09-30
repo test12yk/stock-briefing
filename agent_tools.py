@@ -69,6 +69,17 @@ def _get_dart_filings_impl(name: str, ticker: str, days: int = 7) -> dict:
     return _get_dart_filings(name, ticker, days=days, api_key=AGENT_CONFIG["dart_api_key"])
 
 
+_MARKET_INDEX_TICKERS = {"KOSPI": "^KS11", "KOSDAQ": "^KQ11"}
+
+
+def _get_market_index_impl() -> dict:
+    result = {}
+    for name, ticker in _MARKET_INDEX_TICKERS.items():
+        info = _get_price_impl(ticker)
+        result[name] = info.get("daily_change_pct") if isinstance(info, dict) else None
+    return result
+
+
 _REASON_PROPERTY = {
     "reason": {
         "type": "string",
@@ -103,6 +114,18 @@ TOOLS = [
         },
     },
     {
+        "name": "get_market_index",
+        "description": (
+            "코스피(KOSPI)와 코스닥(KOSDAQ) 지수의 당일 등락률(%)을 가져온다. "
+            "개별 종목을 조사하기 전에 가장 먼저 호출해서 오늘 시장 전체 분위기를 파악하는 용도."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {**_REASON_PROPERTY},
+            "required": ["reason"],
+        },
+    },
+    {
         "name": "get_dart_filings",
         "description": (
             "최근 N일 내 DART(전자공시) 공시 목록을 가져온다. "
@@ -125,6 +148,7 @@ TOOLS = [
 _DISPATCH = {
     "get_news": lambda i: _run_with_timeout(_get_news_impl, i["query"], i.get("limit", 5)),
     "get_price": lambda i: _run_with_timeout(_get_price_impl, i["ticker"]),
+    "get_market_index": lambda i: _run_with_timeout(_get_market_index_impl),
     "get_dart_filings": lambda i: _run_with_timeout(
         _get_dart_filings_impl, i["name"], i["ticker"], i.get("days", 7)
     ),

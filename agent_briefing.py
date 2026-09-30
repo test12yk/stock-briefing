@@ -10,8 +10,12 @@ llm_client.py가 담당 - provider를 바꾸고 싶으면 그 파일만 손보�
 카카오톡 발송은 어느 경로든 항상 이루어진다.
 
 사용법:
-  python3 agent_briefing.py             # 실제로 카카오톡 발송
-  python3 agent_briefing.py --dry-run   # 발송 없이 logs/에만 저장 (트라이얼 기간용)
+  python3 agent_briefing.py               # 실제로 카카오톡 발송 (접두사 없음)
+  python3 agent_briefing.py --dry-run     # 발송 없이 logs/test_runs/에만 저장, 메모리 미반영
+  python3 agent_briefing.py --trial       # 카카오 발송은 하되 "[테스트·에이전트]" 접두사를 붙임
+                                           # (fallback으로 넘어가면 "[테스트·에이전트 → fallback]").
+                                           # briefing_history 저장/로그는 실제 운영과 동일하게 남음.
+  python3 agent_briefing.py --simulate=<시나리오>  # 도구 응답을 가짜로 대체 (항상 dry-run 취급)
 """
 import re
 import sys
@@ -29,12 +33,14 @@ from kakao_notify import send_kakao_message
 NO_CAUSE_PHRASE = "확인된 원인 없음"
 NOT_INVESTIGATED_PHRASE = "변동 작음, 별도 조사 안 함"
 BUDGET_EXCEEDED_PHRASE = "10회 반복 한도로 미조사"
+MARKET_COMOVE_PATTERN = re.compile(r"시장 전체 흐름\([^)]*\)에 동반")
 
 SYSTEM_PROMPT = f"""당신은 개인 투자자를 위한 보유종목 브리핑 작성 보조입니다.
 
 목표: 오늘 보유 종목 중 주목할 만한 움직임을 찾아 원인까지 확인해서, 카카오톡으로 보낼 짧은 브리핑을 작성하세요.
 
 사용 가능한 도구 (모두 왜 지금 이 도구를 호출하는지 reason 파라미터에 한 문장으로 반드시 적어야 함):
+- get_market_index(reason): 코스피/코스닥 당일 등락률
 - get_price(ticker, reason): 현재가 + 당일 등락률
 - get_news(query, limit, reason): 최신 뉴스 헤드라인
 - get_dart_filings(name, ticker, days, reason): 최근 공시 목록. 국내 상장 종목(.KS/.KQ)에만 적용되며,
@@ -42,7 +48,9 @@ SYSTEM_PROMPT = f"""당신은 개인 투자자를 위한 보유종목 브리핑 
   "DART 조회 대상이 아니다"라는 뜻이니 그렇게 이해하고 넘어가세요.
 
 조사 절차 (반드시 이 순서로 진행할 것):
-1) 가장 먼저, 지금 받은 종목 목록 전체에 대해 get_price를 호출해서 당일 등락률을 확인하세요.
+0) 개별 종목을 보기 전에 가장 먼저 get_market_index를 한 번 호출해서 오늘 코스피/코스닥이
+   각각 얼마나 움직였는지 확인하세요.
+1) 그다음, 지금 받은 종목 목록 전체에 대해 get_price를 호출해서 당일 등락률을 확인하세요.
    이 단계에서는 아직 get_news나 get_dart_filings를 호출하지 마세요.
 2) get_price 결과에서 당일 등락률의 절대값이 2% 이상인 종목은, get_news와 get_dart_filings
    (국내 상장 종목만 - 해외 종목은 get_dart_filings 호출 자체를 생략해도 됨) 둘 다 반드시 호출해서
@@ -52,9 +60,14 @@ SYSTEM_PROMPT = f"""당신은 개인 투자자를 위한 보유종목 브리핑 
    스스로 조사를 건너뛰지 마세요 - 정말 10번을 다 썼을 때만 그런 게 의미가 있습니다.
 3) 당일 등락률의 절대값이 2% 미만인 종목은, 별도로 조사가 필요하다고 판단될 때만 추가로 조사하세요.
    조사하지 않아도 됩니다.
-4) 각 종목에 대해 브리핑에 쓸 수 있는 원인 문구는 다음 세 가지뿐입니다:
+4) 각 종목에 대해 브리핑에 쓸 수 있는 원인 문구는 다음 네 가지뿐입니다:
    - "{NO_CAUSE_PHRASE}": 그 종목에 대해 get_news와 get_dart_filings를 **둘 다 호출**했지만
-     뚜렷한 원인을 찾지 못했을 때만 쓸 수 있습니다. 조사 없이 이 문구를 쓰면 안 됩니다.
+     뚜렷한 개별 원인을 찾지 못했고, 그 종목이 속한 시장 지수(코스피/코스닥)도 같은 날 1% 이상
+     움직이지는 않았을 때 쓰세요.
+   - "시장 전체 흐름(코스닥 -2.3%)에 동반" 형식(지수명과 실제 등락률을 그대로 넣을 것): get_news와
+     get_dart_filings를 **둘 다 호출**했지만 뚜렷한 개별 원인은 못 찾았는데, 그 종목이 속한 시장
+     지수가 같은 날 절대값 1% 이상 움직였을 때 씁니다 - 즉 이 문구도 뉴스·공시 조사를 마쳤다는
+     전제가 그대로 필요하고, 조사 없이 지수 핑계만 대면 안 됩니다.
    - "{NOT_INVESTIGATED_PHRASE}": 등락률이 작아서(2% 미만) 별도로 조사하지 않은 종목에 쓰세요.
    - "{BUDGET_EXCEEDED_PHRASE}": 등락률이 2% 이상이라 조사 대상이지만, 정말로 10번의 반복을
      다 써서 더 이상 도구를 호출할 수 없을 때만 쓰세요 (드문 경우입니다).
@@ -126,31 +139,40 @@ def _build_movers_context(state: dict):
         for t, _ in top_tickers
     ]
 
-    excluded_summary = None
+    # 상위 N개 조사 대상에서 빠졌지만 실제로 ±2% 이상 움직인 종목은 조사 없이(코드로만)
+    # 이름+등락률 한 줄로 요약한다 - LLM에 안 시키므로 지어낼 여지도, 지시문을 되받아쓸 여지도 없다.
+    excluded_lines = []
     if excluded:
-        excluded_over_2pct = [t for t, c in excluded if abs(c) >= 2.0]
+        excluded_over_2pct = [(t, c) for t, c in excluded if abs(c) >= 2.0]
         if excluded_over_2pct:
-            # 상위 N개 캡 때문에 정말로 ±2% 이상인데도 빠진 종목이 있으면 "미만"이라고 잘못 요약하지 않는다.
-            excluded_summary = (
-                f"그 외 {len(excluded)}종목 중 {len(excluded_over_2pct)}종목은 등락률 ±2% 이상이지만 "
-                f"상위 {top_n}개 조사 대상에서 제외되어 이번 브리핑에는 포함되지 않았습니다."
-            )
-        else:
-            excluded_summary = f"그 외 {len(excluded)}종목 ±2% 미만"
+            listed = ", ".join(f"{name_by_ticker.get(t, t)} {c:+.1f}%" for t, c in excluded_over_2pct)
+            excluded_lines.append(f"그 외 ±2% 이상: {listed}")
+        under_2pct_count = len(excluded) - len(excluded_over_2pct)
+        if under_2pct_count:
+            excluded_lines.append(f"그 외 {under_2pct_count}종목 ±2% 미만")
+    excluded_summary = " / ".join(excluded_lines) if excluded_lines else None
 
     return movers_context, excluded_summary
 
 
 def _verify_no_cause_claims(final_text: str, movers_context: list, tool_call_trace: list) -> list:
-    """브리핑에서 NO_CAUSE_PHRASE를 쓴 종목마다, 그 종목에 대해 get_news와 get_dart_filings를
-    실제로 둘 다 호출했는지 로그와 대조. 근거 없이 쓴 경우 경고 문자열 리스트를 반환."""
+    """브리핑에서 NO_CAUSE_PHRASE나 "시장 전체 흐름(...)에 동반" 문구를 쓴 종목마다, 그 종목에
+    대해 get_news와 get_dart_filings를 실제로 둘 다 호출했는지 로그와 대조 (두 문구 모두 "뉴스·공시는
+    조사했다"는 전제가 필요함). 근거 없이 쓴 경우 경고 문자열 리스트를 반환."""
     warnings = []
     blocks = re.split(r"(?=■ )", final_text)  # "■ 종목명 (...)" 단위로 문단 분리
 
     for m in movers_context:
         name = m["name"]
         block = next((b for b in blocks if b.startswith(f"■ {name}")), None)
-        if block is None or NO_CAUSE_PHRASE not in block:
+        if block is None:
+            continue
+        claimed_phrase = None
+        if NO_CAUSE_PHRASE in block:
+            claimed_phrase = NO_CAUSE_PHRASE
+        elif MARKET_COMOVE_PATTERN.search(block):
+            claimed_phrase = "시장 전체 흐름(...)에 동반"
+        if claimed_phrase is None:
             continue
 
         calls_for_stock = [
@@ -170,7 +192,7 @@ def _verify_no_cause_claims(final_text: str, movers_context: list, tool_call_tra
 
         if missing:
             warnings.append(
-                f"{name}: 브리핑에 \"{NO_CAUSE_PHRASE}\"라고 썼지만 {'/'.join(missing)} 호출 기록이 없음 (근거 없는 서술 의심)"
+                f"{name}: 브리핑에 \"{claimed_phrase}\"라고 썼지만 {'/'.join(missing)} 호출 기록이 없음 (근거 없는 서술 의심)"
             )
     return warnings
 
@@ -191,10 +213,11 @@ def _parse_simulate_arg():
 
 def main():
     simulate_scenario = _parse_simulate_arg()
-    dry_run = "--dry-run" in sys.argv or bool(simulate_scenario)  # 시뮬레이션은 항상 dry-run 취급
+    dry_run = "--dry-run" in sys.argv or bool(simulate_scenario)  # 시뮬레이션/dry-run은 발송 안 함, 최우선
+    is_trial = "--trial" in sys.argv and not dry_run  # dry-run과 같이 오면 안전하게 dry-run 우선
     print(
         f"[{datetime.now():%Y-%m-%d %H:%M}] 보유종목 브리핑(에이전트) 생성 시작 "
-        f"(dry_run={dry_run}, simulate={simulate_scenario})"
+        f"(dry_run={dry_run}, trial={is_trial}, simulate={simulate_scenario})"
     )
 
     recorder = RunRecorder(model=AGENT_CONFIG["model"], dry_run=dry_run)
@@ -240,16 +263,21 @@ def main():
         print(f"⚠ [검증 경고] {w}")
 
     # 트라이얼/개발 중 테스트 실행(--dry-run)은 다음날 메모리(briefing_history)를 오염시키지
-    # 않도록 별도 폴더에 저장한다. 실제 운영 실행(카카오 발송)만 메모리에 반영된다.
+    # 않도록 별도 폴더에 저장한다. --trial과 실제 운영 실행은 둘 다 메모리에 반영된다(저장 내용은
+    # 접두사 없는 순수 final_text - 카톡에만 [테스트·에이전트] 표시를 붙인다).
     if dry_run:
         save_test_run(final_text)
         print("📝 dry-run 모드: 카카오톡 발송 없이 logs/test_runs/에만 저장함 (메모리 미반영)")
     else:
         save_briefing(final_text)
+        text_to_send = final_text
+        if is_trial:
+            prefix = "[테스트·에이전트]" if mode == "agent" else "[테스트·에이전트 → fallback]"
+            text_to_send = f"{prefix} {final_text}"
         if KAKAO_CONFIG.get("enabled"):
             try:
-                ok = send_kakao_message(final_text)
-                print(f"📩 카카오톡 알림 발송: {'성공' if ok else '실패'}")
+                ok = send_kakao_message(text_to_send)
+                print(f"📩 카카오톡 알림 발송: {'성공' if ok else '실패'} (trial={is_trial})")
             except Exception as e:
                 print(f"⚠ 카카오톡 알림 발송 중 오류: {e}")
 

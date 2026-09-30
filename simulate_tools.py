@@ -92,6 +92,9 @@ def make_fake_execute_tool(scenario: str):
     handler = SCENARIOS[scenario]
 
     def _execute(name: str, tool_input: dict) -> dict:
+        if name == "get_market_index":
+            # 시나리오별로 따로 정의할 필요 없이 전 시나리오 공통 - 시장은 평범하게 움직인 걸로 고정
+            return {"KOSPI": 0.2, "KOSDAQ": -0.1}
         return handler(name, tool_input)
 
     return _execute
