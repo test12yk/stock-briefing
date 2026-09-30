@@ -63,7 +63,7 @@ def get_dart_filings(name: str, ticker: str, days: int = 7, api_key: str = None)
     반환 형식:
       대상 아님    -> {"available": False, "reason": "..."}
       대상이지만 공시 없음 -> {"available": True, "filings": []}
-      공시 있음    -> {"available": True, "filings": [{"title":..., "date":..., "report_type":...}, ...]}
+      공시 있음    -> {"available": True, "filings": [{"title":..., "date":..., "filer":...}, ...]}
     """
     if not api_key:
         return {"available": False, "reason": "DART API 키가 설정되지 않음"}
@@ -105,9 +105,9 @@ def get_dart_filings(name: str, ticker: str, days: int = 7, api_key: str = None)
 
     filings = [
         {
-            "title": item.get("report_nm"),
+            "title": (item.get("report_nm") or "").strip(),
             "date": item.get("rcept_dt"),
-            "report_type": item.get("pblntf_ty"),
+            "filer": item.get("flr_nm"),  # 제출인 (예: 임원 성명, 회사명 등)
         }
         for item in result.get("list", [])
     ]

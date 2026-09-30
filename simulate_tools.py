@@ -35,7 +35,7 @@ def _high_change(name: str, tool_input: dict) -> dict:
         return {"query": q, "headlines": [f"{q} 급등, 실적 서프라이즈 발표", f"{q} 목표주가 상향 조정"]}
     if name == "get_dart_filings":
         return {"available": True, "filings": [
-            {"title": "주요사항보고서(자기주식취득결정)", "date": "20260929", "report_type": "A001"}
+            {"title": "주요사항보고서(자기주식취득결정)", "date": "20260929", "filer": "삼성전자"}
         ]}
     return {"error": f"알 수 없는 도구: {name}"}
 
