@@ -28,15 +28,6 @@ def _run_with_timeout(fn, *args, **kwargs):
         return {"error": str(e)}
 
 
-def get_price_with_change(ticker: str) -> dict:
-    """agent_briefing.py가 초기 컨텍스트(무버 목록) 구성 시 직접 호출하는 용도.
-    tool 실행 경로(execute_tool)의 타임아웃/에러래핑은 거치지 않는 단순 헬퍼."""
-    try:
-        return _get_price_impl(ticker)
-    except Exception as e:
-        return {"error": str(e)}
-
-
 def _get_price_impl(ticker: str) -> dict:
     df = yf.Ticker(ticker).history(period="5d")
     if df is None or df.empty:
@@ -62,6 +53,13 @@ def _get_dart_filings_impl(name: str, ticker: str, days: int = 7) -> dict:
     return _get_dart_filings(name, ticker, days=days, api_key=AGENT_CONFIG["dart_api_key"])
 
 
+_REASON_PROPERTY = {
+    "reason": {
+        "type": "string",
+        "description": "이 도구를 지금 호출하는 이유를 한 문장으로 (예: '등락률 -1.47%로 2%는 안 되지만 배당 이슈 확인 차 조사'). 로그에 그대로 남는다.",
+    },
+}
+
 TOOLS = [
     {
         "name": "get_news",
@@ -71,8 +69,9 @@ TOOLS = [
             "properties": {
                 "query": {"type": "string", "description": "검색할 종목명 또는 키워드"},
                 "limit": {"type": "integer", "description": "가져올 헤드라인 개수 (기본 5)"},
+                **_REASON_PROPERTY,
             },
-            "required": ["query"],
+            "required": ["query", "reason"],
         },
     },
     {
@@ -82,8 +81,9 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "ticker": {"type": "string", "description": "야후 파이낸스 티커 (예: 005930.KS, AAPL)"},
+                **_REASON_PROPERTY,
             },
-            "required": ["ticker"],
+            "required": ["ticker", "reason"],
         },
     },
     {
@@ -99,8 +99,9 @@ TOOLS = [
                 "name": {"type": "string", "description": "회사명 (예: 삼성전자)"},
                 "ticker": {"type": "string", "description": "야후 파이낸스 티커 (예: 005930.KS)"},
                 "days": {"type": "integer", "description": "최근 며칠 이내 공시를 볼지 (기본 7)"},
+                **_REASON_PROPERTY,
             },
-            "required": ["name", "ticker"],
+            "required": ["name", "ticker", "reason"],
         },
     },
 ]

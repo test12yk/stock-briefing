@@ -42,10 +42,12 @@ class RunRecorder:
             "latency_ms": round(latency_ms, 1),
         })
 
-    def finalize(self, mode: str, final_briefing: str, fallback_reason: str = None):
+    def finalize(self, mode: str, final_briefing: str, fallback_reason: str = None,
+                 verification_warnings: list = None):
         self.mode = mode
         self.final_briefing = final_briefing
         self.fallback_reason = fallback_reason
+        self.verification_warnings = verification_warnings or []
 
         os.makedirs(RUNS_DIR, exist_ok=True)
         duration_sec = (datetime.now() - self.start_time).total_seconds()
@@ -55,6 +57,7 @@ class RunRecorder:
             "dry_run": self.dry_run,
             "mode": self.mode,
             "fallback_reason": self.fallback_reason,
+            "verification_warnings": self.verification_warnings,
             "iterations": self.iterations,
             "tool_call_count": len(self.tool_calls),
             "api_call_count": self.api_call_count,

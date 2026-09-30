@@ -29,7 +29,8 @@ class ToolLoopResult:
     iterations: int
     input_tokens: int
     output_tokens: int
-    # [{"iteration":i, "name":..., "input":..., "reasoning": "이 호출 직전 모델이 남긴 텍스트(있으면)"}]
+    # [{"iteration":i, "name":..., "input":..., "reason": tool_input["reason"],
+    #   "model_text": "이 호출 직전 모델이 남긴 자유 텍스트(있으면)"}]
     tool_call_trace: list = field(default_factory=list)
 
 
@@ -160,7 +161,7 @@ def _run_gemini_loop(system_prompt, tools, user_prompt, execute_tool, recorder) 
             return ToolLoopResult(text, i, input_tokens, output_tokens, tool_call_trace)
 
         contents.append(candidate.content)  # role="model" (SDK가 채워줌)
-        reasoning_text = "".join(p.text for p in parts if getattr(p, "text", None)).strip()
+        model_text = "".join(p.text for p in parts if getattr(p, "text", None)).strip()
 
         response_parts = []
         for part in function_calls:
@@ -171,7 +172,8 @@ def _run_gemini_loop(system_prompt, tools, user_prompt, execute_tool, recorder) 
             latency_ms = (time.monotonic() - t0) * 1000
             recorder.record_tool_call(i, fc.name, tool_input, output, latency_ms)
             tool_call_trace.append({
-                "iteration": i, "name": fc.name, "input": tool_input, "reasoning": reasoning_text,
+                "iteration": i, "name": fc.name, "input": tool_input,
+                "reason": tool_input.get("reason"), "model_text": model_text,
             })
             response_parts.append(
                 types.Part.from_function_response(name=fc.name, response={"result": output})
