@@ -59,7 +59,10 @@ SYSTEM_PROMPT = f"""당신은 개인 투자자를 위한 보유종목 브리핑 
 3. 도구는 최대 10번까지 호출할 수 있습니다. 그 안에 끝내지 못하면 그때까지 알아낸 내용만으로
    브리핑을 마무리하세요.
 4. 매매/주문과 관련된 어떤 제안도 하지 마세요 (이 봇은 정보 제공 전용입니다).
-5. 최종 답변은 도구 호출 없이, 카카오톡으로 바로 보낼 수 있는 간결한 한국어 텍스트로만 작성하세요
+5. get_news나 get_dart_filings를 호출했는데 결과가 비어있으면("headlines": [] 또는
+   "filings": []), 그 사실도 브리핑에 명시하세요 (예: "뉴스: 관련 기사 없음",
+   "공시: 최근 7일 없음"). 조용히 생략하지 말고, 조사했지만 아무것도 없었다는 것 자체가 정보입니다.
+6. 최종 답변은 도구 호출 없이, 카카오톡으로 바로 보낼 수 있는 간결한 한국어 텍스트로만 작성하세요
    (불필요한 서두/맺음말 없이). 종목마다 "■ 종목명 (티커): ..." 형식으로 한 문단씩 쓰세요.
 """
 
@@ -126,9 +129,27 @@ def _verify_no_cause_claims(final_text: str, movers_context: list, tool_call_tra
     return warnings
 
 
+def _combine_messages(fallback_text: str, agent_text: str) -> str:
+    """실제 카카오로 나가는 최종 메시지 = 규칙 기반 정량 요약(총평가액/손익 등, LLM 미노출) +
+    에이전트가 조사한 이슈 분석. 에이전트는 금액 정보를 애초에 본 적이 없으므로 두 텍스트가
+    겹치지 않는다."""
+    return f"{fallback_text}\n\n🤖 AI 이슈 분석:\n{agent_text}"
+
+
+def _parse_simulate_arg():
+    for arg in sys.argv:
+        if arg.startswith("--simulate="):
+            return arg.split("=", 1)[1]
+    return None
+
+
 def main():
-    dry_run = "--dry-run" in sys.argv
-    print(f"[{datetime.now():%Y-%m-%d %H:%M}] 보유종목 브리핑(에이전트) 생성 시작 (dry_run={dry_run})")
+    simulate_scenario = _parse_simulate_arg()
+    dry_run = "--dry-run" in sys.argv or bool(simulate_scenario)  # 시뮬레이션은 항상 dry-run 취급
+    print(
+        f"[{datetime.now():%Y-%m-%d %H:%M}] 보유종목 브리핑(에이전트) 생성 시작 "
+        f"(dry_run={dry_run}, simulate={simulate_scenario})"
+    )
 
     recorder = RunRecorder(model=AGENT_CONFIG["model"], dry_run=dry_run)
 
@@ -141,18 +162,23 @@ def main():
     tool_call_trace = []
     verification_warnings = []
 
+    tool_executor = execute_tool
+    if simulate_scenario:
+        from simulate_tools import make_fake_execute_tool
+        tool_executor = make_fake_execute_tool(simulate_scenario)
+
     if AGENT_CONFIG["enabled"]:
         try:
             state = compute_positions()
             movers_context = _build_movers_context(state["costed_positions"])
             recent = load_recent_briefings()
             user_prompt = _build_user_prompt(movers_context, recent)
-            result = run_tool_loop(SYSTEM_PROMPT, TOOLS, user_prompt, execute_tool, recorder)
-            final_text = result.text
+            result = run_tool_loop(SYSTEM_PROMPT, TOOLS, user_prompt, tool_executor, recorder)
             tool_call_trace = result.tool_call_trace
             mode = "agent"
             fallback_reason = None
-            verification_warnings = _verify_no_cause_claims(final_text, movers_context, tool_call_trace)
+            final_text = result.text if simulate_scenario else _combine_messages(fallback_text, result.text)
+            verification_warnings = _verify_no_cause_claims(result.text, movers_context, tool_call_trace)
         except Exception as e:
             print(f"⚠ 에이전트 실행 실패, 규칙 기반으로 폴백: {e}")
             final_text = fallback_text
