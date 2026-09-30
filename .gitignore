@@ -7,6 +7,10 @@ kakao_token.json
 *.log
 *_log.txt
 
+# 에이전트 실행 로그/메모리(보유종목·손익 등 개인 재무정보 포함될 수 있음) 및 DART 회사코드 캐시
+logs/
+dart_corp_codes.json
+
 # 파이썬
 __pycache__/
 *.pyc
