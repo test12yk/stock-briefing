@@ -35,15 +35,15 @@ def _save_tokens(tokens: dict):
 
 
 def _refresh_access_token(refresh_token: str) -> dict:
-    resp = requests.post(
-        "https://kauth.kakao.com/oauth/token",
-        data={
-            "grant_type": "refresh_token",
-            "client_id": DIVIDEND_KAKAO_CONFIG["rest_api_key"],
-            "refresh_token": refresh_token,
-        },
-        timeout=10,
-    )
+    token_data = {
+        "grant_type": "refresh_token",
+        "client_id": DIVIDEND_KAKAO_CONFIG["rest_api_key"],
+        "refresh_token": refresh_token,
+    }
+    if DIVIDEND_KAKAO_CONFIG.get("client_secret"):
+        token_data["client_secret"] = DIVIDEND_KAKAO_CONFIG["client_secret"]
+
+    resp = requests.post("https://kauth.kakao.com/oauth/token", data=token_data, timeout=10)
     resp.raise_for_status()
     result = resp.json()
     tokens = _load_tokens()

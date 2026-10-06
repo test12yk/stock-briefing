@@ -20,6 +20,11 @@ try:
 except ImportError:
     DIVIDEND_KAKAO_REST_API_KEY = None
 
+try:
+    from local_secrets import DIVIDEND_KAKAO_CLIENT_SECRET
+except ImportError:
+    DIVIDEND_KAKAO_CLIENT_SECRET = None
+
 KAKAO_CONFIG = {
     "enabled": bool(KAKAO_REST_API_KEY),        # local_secrets.py가 없으면 자동으로 꺼짐
     "rest_api_key": KAKAO_REST_API_KEY,
@@ -33,6 +38,9 @@ KAKAO_CONFIG = {
 DIVIDEND_KAKAO_CONFIG = {
     "enabled": bool(DIVIDEND_KAKAO_REST_API_KEY),
     "rest_api_key": DIVIDEND_KAKAO_REST_API_KEY,
+    # 이 앱은 "클라이언트 시크릿" 보안 기능이 켜져 있어서 토큰 발급/갱신 요청에 같이 보내야 함
+    # (카카오 로그인 콘솔: 앱 > 플랫폼 키 > REST API 키 > 클라이언트 시크릿)
+    "client_secret": DIVIDEND_KAKAO_CLIENT_SECRET,
     "redirect_uri": "https://localhost:3000",
 }
 

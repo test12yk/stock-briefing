@@ -62,16 +62,16 @@ def main():
     match = re.search(r"code=([^&]+)", pasted)
     code = match.group(1) if match else pasted
 
-    resp = requests.post(
-        "https://kauth.kakao.com/oauth/token",
-        data={
-            "grant_type": "authorization_code",
-            "client_id": rest_api_key,
-            "redirect_uri": redirect_uri,
-            "code": code,
-        },
-        timeout=10,
-    )
+    token_data = {
+        "grant_type": "authorization_code",
+        "client_id": rest_api_key,
+        "redirect_uri": redirect_uri,
+        "code": code,
+    }
+    if DIVIDEND_KAKAO_CONFIG.get("client_secret"):
+        token_data["client_secret"] = DIVIDEND_KAKAO_CONFIG["client_secret"]
+
+    resp = requests.post("https://kauth.kakao.com/oauth/token", data=token_data, timeout=10)
 
     if resp.status_code != 200:
         print(f"\n❌ 토큰 발급 실패 ({resp.status_code}): {resp.text}")
