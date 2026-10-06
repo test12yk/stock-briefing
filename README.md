@@ -88,14 +88,17 @@ python3 dividend_bot.py --test   # 발송/상태저장 없이 콘솔 출력만 (
 `my_holdings_report.py`와 같은 카카오 앱(REST API 키)을 쓰면 카카오톡 메시지 하단에 뜨는 "APP OOO" 발신 앱 라벨까지는 구별이 안 됩니다 (메시지 내용이 아니라 앱 자체에 달린 라벨이라 메시지 payload로 바꿀 수 없음). 이 라벨까지 다르게 보이게 하려면 배당봇 전용 카카오 앱을 하나 더 만드세요 (stock-bot/stock-briefing 사이에서도 이미 같은 이유로 `kakao_notify.py`/`kakao_setup.py`가 저장소별로 복제되어 있습니다).
 
 1. [developers.kakao.com](https://developers.kakao.com) → 내 애플리케이션 → 애플리케이션 추가하기 (앱 이름: 원하는 대로, 예: "배당알림봇")
-2. [앱 키] → **REST API 키** 복사
-3. [카카오 로그인] 활성화 → [동의항목]에서 "카카오톡 메시지 전송(talk_message)" 설정
-4. [카카오 로그인] → [Redirect URI]에 `https://localhost:3000` 등록
-5. `local_secrets.py`에 한 줄 추가:
+2. **앱 → 플랫폼 키 → REST API 키** 카드 클릭 → 상세 페이지에서:
+   - **REST API 키** 복사
+   - **카카오 로그인 리다이렉트 URI**에 `https://localhost:3000` 등록 (콘솔 개편으로 이 항목이 "카카오 로그인" 메뉴가 아니라 여기로 옮겨짐 — 없다고 "카카오 로그인 → 일반/고급"에서 찾지 말 것)
+   - **클라이언트 시크릿**이 "카카오 로그인" 행에 켜져 있다면(활성화 ON) 그 **코드**도 복사 (켜져 있는데 안 보내면 토큰 발급이 `KOE010`으로 실패함)
+3. **카카오 로그인 → 동의항목** → "카카오톡 메시지 전송(talk_message)" 설정 버튼 → **필수 동의**로 지정 (선택 동의로 두면 로그인은 되는데 실제 토큰에 메시지 전송 권한이 빠져서 발송이 403으로 실패함)
+4. `local_secrets.py`에 추가:
    ```python
    DIVIDEND_KAKAO_REST_API_KEY = "여기에 2번에서 복사한 REST API 키"
+   DIVIDEND_KAKAO_CLIENT_SECRET = "여기에 2번에서 복사한 클라이언트 시크릿 코드"  # 꺼져있으면 이 줄 생략 가능
    ```
-6. `python3 dividend_kakao_setup.py` 실행 → 안내되는 URL을 브라우저에서 열어 로그인/동의 → 리다이렉트된 URL을 붙여넣기 (`dividend_kakao_token.json` 생성됨, `kakao_token.json`과 별개 파일)
+5. `python3 dividend_kakao_setup.py` 실행 → 안내되는 URL을 브라우저에서 열어 로그인/동의 → 리다이렉트된 URL을 붙여넣기 (`dividend_kakao_token.json` 생성됨, `kakao_token.json`과 별개 파일). 이미 한 번 로그인해서 동의 화면이 안 뜨고 바로 넘어간다면, 인증 URL 끝에 `&prompt=consent`를 붙여서 동의 화면을 강제로 다시 띄울 것.
 
 이 설정 전까지는 `dividend_bot.py`를 `--test` 없이 실행하면 카톡 발송 전에 바로 에러로 막힙니다.
 
