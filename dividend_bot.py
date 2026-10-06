@@ -453,16 +453,34 @@ def check_etf_distributions(etf_positions: dict, state: dict) -> list:
 
 # ───────────────────────── 메시지 포맷 & 실행 ─────────────────────────
 
+# my_holdings_report.py가 "💼 실제 보유자산 리포트"로 시작하는 것과 한눈에 구별되도록
+# 완전히 다른 이모지+제목을 맨 앞줄에 둔다. 같은 카카오 앱(나에게 보내기)으로 보내는 두 봇의
+# 메시지가 카톡 채팅방에서 섞여도, 첫 줄만 보고 바로 구분할 수 있어야 한다.
+DIGEST_HEADER = "💰 배당·분배금 공시 알림"
+
+
 def format_notification(n: dict) -> str:
-    lines = [f"[배당] {n['name']} 1주당 {n['per_share']:,}원"]
+    lines = [f"· {n['name']} 1주당 {n['per_share']:,}원"]
     if n.get("record_date") or n.get("pay_date"):
-        lines.append(f"기준일 {n.get('record_date', '-')} / 지급일 {n.get('pay_date', '-')}")
+        lines.append(f"  기준일 {n.get('record_date', '-')} / 지급일 {n.get('pay_date', '-')}")
     total_pretax = sum(a["pretax"] for a in n["amounts"])
     total_posttax = sum(a["posttax"] for a in n["amounts"])
     for a in n["amounts"]:
         tag = "(과세이연)" if a["deferred"] else ""
         lines.append(f"  {a['account']} {a['qty']}주: {a['pretax']:,}원{tag}")
-    lines.append(f"합계 세전 {total_pretax:,}원 / 세후 {total_posttax:,}원")
+    lines.append(f"  합계 세전 {total_pretax:,}원 / 세후 {total_posttax:,}원")
+    return "\n".join(lines)
+
+
+def format_digest(notifications: list) -> str:
+    today = datetime.now().strftime("%Y-%m-%d")
+    blocks = [format_notification(n) for n in notifications]
+    grand_pretax = sum(a["pretax"] for n in notifications for a in n["amounts"])
+    grand_posttax = sum(a["posttax"] for n in notifications for a in n["amounts"])
+    lines = [f"{DIGEST_HEADER} ({today})", ""]
+    lines.append("\n\n".join(blocks))
+    lines.append("")
+    lines.append(f"오늘 합계 세전 {grand_pretax:,}원 / 세후 {grand_posttax:,}원 ({len(notifications)}건)")
     return "\n".join(lines)
 
 
@@ -486,14 +504,10 @@ def main():
             save_state(state)
         return
 
-    for n in all_notifications:
-        msg = format_notification(n)
-        print("-" * 40)
-        print(msg)
-        if not test_mode:
-            send_kakao_message(msg)
-
+    digest = format_digest(all_notifications)
+    print(digest)
     if not test_mode:
+        send_kakao_message(digest)
         save_state(state)
         print(f"\n총 {len(all_notifications)}건 카카오톡 발송 완료.")
     else:
