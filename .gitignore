@@ -7,6 +7,10 @@ kakao_token.json
 *.log
 *_log.txt
 
+# dividend_bot.py가 실행 중 생성하는 상태/캐시 파일
+dividend_state.json
+dart_corp_code_cache.json
+
 # 파이썬
 __pycache__/
 *.pyc

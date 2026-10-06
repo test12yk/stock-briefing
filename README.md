@@ -9,6 +9,7 @@
 - **종목별 실시간 뉴스**: 구글 뉴스 RSS 파싱 (별도 API 키 불필요)
 - **카카오톡 자동 발송**: OAuth 기반 "나에게 보내기" 연동, 토큰 자동 갱신, 200자 제한 자동 메시지 분할
 - **대화형 설정 마법사**: 코드를 직접 건드리지 않고 `setup.py` 실행만으로 보유 종목/카카오 계정 등록
+- **배당/분배금 공시 알림** (`dividend_bot.py`): 보유 종목의 배당 공시가 뜨면 보유수량 기준 예상 입금액(계좌별 세전/세후)을 카카오톡으로 알려줌
 
 ## 설치
 
@@ -37,6 +38,7 @@ python3 my_holdings_report.py   # 리포트 생성 + 카카오톡 발송
 | `local_secrets.py` | 카카오 REST API 키 (`setup.py`로 생성, `.gitignore` 처리) |
 | `kakao_notify.py` / `kakao_setup.py` | 카카오톡 "나에게 보내기" OAuth 연동 |
 | `news_fetcher.py` | 종목별 뉴스 헤드라인 조회 |
+| `dividend_bot.py` | 보유 종목 배당/분배금 공시 감지 + 예상 입금액 계산 + 카톡 발송 |
 
 ## 카카오톡 알림 설정
 
@@ -65,13 +67,29 @@ python3 my_holdings_report.py   # 리포트 생성 + 카카오톡 발송
   · [삼성전자] ...
 ```
 
+## 배당/분배금 공시 알림 (`dividend_bot.py`)
+
+보유 종목(`my_portfolio.py`)의 배당 소식이 공시되면, 보유수량을 곱한 예상 입금액(계좌별 세전/세후)을 카카오톡으로 알려줍니다.
+
+- **개별 주식**: DART(전자공시시스템)의 "현금ㆍ현물배당결정" 공시를 조회해서 1주당 배당금/배당기준일/지급예정일을 공시 원문에서 직접 파싱합니다. (`local_secrets.py`에 `DART_API_KEY` 필요 — [opendart.fss.or.kr](https://opendart.fss.or.kr)에서 무료 발급)
+- **ETF**: ETF는 DART 공시 대상이 아니라서, 한국거래소 KIND 상장공시시스템의 "ETF이익금분배신고(분배금안내)" 일괄공시를 조회해서 보유 ETF명과 일치하는 분배금만 추려냅니다.
+- **세전/세후**: ISA·연금계좌는 입금 시점에 배당소득세가 즉시 징수되지 않고 계좌 내에서 과세이연되므로 세후=세전으로 표시하고, 일반 위탁계좌(일반종합/토스증권)만 배당소득세 15.4%를 적용합니다.
+- 이미 알려준 공시는 `dividend_state.json`에 접수번호로 기록해서 중복 알림을 보내지 않습니다.
+- 해외주식(토스증권의 미국주식)은 이 두 데이터소스 어디에도 해당하지 않아 현재는 알림 대상에서 제외됩니다.
+
+```bash
+python3 dividend_bot.py          # 공시 확인 + 있으면 카톡 발송
+python3 dividend_bot.py --test   # 발송/상태저장 없이 콘솔 출력만 (점검용)
+```
+
 ## 자동 실행 (cron)
 
 ```
 50 11 * * 1-5 cd /path/to/stock-briefing && python3 my_holdings_report.py >> holdings_log.txt 2>&1
+0  14 * * 1-5 cd /path/to/stock-briefing && python3 dividend_bot.py >> dividend_log.txt 2>&1
 ```
 
-macOS에서 노트북이 잠들어 있을 시간대에 실행하려면 `pmset repeat`(정기 자동 깨우기)와 `caffeinate`(절전 방지)를 조합해서 필요한 시간에만 짧게 깨어나도록 구성할 수 있습니다.
+macOS에서 노트북이 잠들어 있을 시간대에 실행하려면 `pmset repeat`(정기 자동 깨우기)와 `caffeinate`(절전 방지)를 조합해서 필요한 시간에만 짧게 깨어나도록 구성할 수 있습니다. `dividend_bot.py`는 긴급성이 낮은 작업이라(공시가 며칠 늦게 감지돼도 무방), 새 깨우기 시간을 따로 만들지 않고 이미 안정적으로 동작 중인 다른 작업의 깨어있는 시간대에 붙여서 실행하는 걸 추천합니다.
 
 ## 여러 종목/계좌 등록하기
 
