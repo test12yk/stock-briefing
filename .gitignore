@@ -2,6 +2,7 @@
 local_secrets.py
 my_portfolio.py
 kakao_token.json
+dividend_kakao_token.json
 
 # 실행 시 생성되는 로그 파일
 *.log

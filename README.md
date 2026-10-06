@@ -76,11 +76,28 @@ python3 my_holdings_report.py   # 리포트 생성 + 카카오톡 발송
 - **세전/세후**: ISA·연금계좌는 입금 시점에 배당소득세가 즉시 징수되지 않고 계좌 내에서 과세이연되므로 세후=세전으로 표시하고, 일반 위탁계좌(일반종합/토스증권)만 배당소득세 15.4%를 적용합니다.
 - 이미 알려준 공시는 `dividend_state.json`에 접수번호로 기록해서 중복 알림을 보내지 않습니다.
 - 해외주식(토스증권의 미국주식)은 이 두 데이터소스 어디에도 해당하지 않아 현재는 알림 대상에서 제외됩니다.
+- 메시지 맨 앞줄은 "💰 배당·분배금 공시 알림"로 시작해서 `my_holdings_report.py`의 "💼 실제 보유자산 리포트"와 한눈에 구별됩니다. 하루에 여러 건이 감지돼도 한 메시지(다이제스트)로 묶어서 보냅니다.
 
 ```bash
 python3 dividend_bot.py          # 공시 확인 + 있으면 카톡 발송
 python3 dividend_bot.py --test   # 발송/상태저장 없이 콘솔 출력만 (점검용)
 ```
+
+### 배당봇 전용 카카오 앱 설정
+
+`my_holdings_report.py`와 같은 카카오 앱(REST API 키)을 쓰면 카카오톡 메시지 하단에 뜨는 "APP OOO" 발신 앱 라벨까지는 구별이 안 됩니다 (메시지 내용이 아니라 앱 자체에 달린 라벨이라 메시지 payload로 바꿀 수 없음). 이 라벨까지 다르게 보이게 하려면 배당봇 전용 카카오 앱을 하나 더 만드세요 (stock-bot/stock-briefing 사이에서도 이미 같은 이유로 `kakao_notify.py`/`kakao_setup.py`가 저장소별로 복제되어 있습니다).
+
+1. [developers.kakao.com](https://developers.kakao.com) → 내 애플리케이션 → 애플리케이션 추가하기 (앱 이름: 원하는 대로, 예: "배당알림봇")
+2. [앱 키] → **REST API 키** 복사
+3. [카카오 로그인] 활성화 → [동의항목]에서 "카카오톡 메시지 전송(talk_message)" 설정
+4. [카카오 로그인] → [Redirect URI]에 `https://localhost:3000` 등록
+5. `local_secrets.py`에 한 줄 추가:
+   ```python
+   DIVIDEND_KAKAO_REST_API_KEY = "여기에 2번에서 복사한 REST API 키"
+   ```
+6. `python3 dividend_kakao_setup.py` 실행 → 안내되는 URL을 브라우저에서 열어 로그인/동의 → 리다이렉트된 URL을 붙여넣기 (`dividend_kakao_token.json` 생성됨, `kakao_token.json`과 별개 파일)
+
+이 설정 전까지는 `dividend_bot.py`를 `--test` 없이 실행하면 카톡 발송 전에 바로 에러로 막힙니다.
 
 ## 자동 실행 (cron)
 

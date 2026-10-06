@@ -15,11 +15,25 @@ try:
 except ImportError:
     DART_API_KEY = None
 
+try:
+    from local_secrets import DIVIDEND_KAKAO_REST_API_KEY
+except ImportError:
+    DIVIDEND_KAKAO_REST_API_KEY = None
+
 KAKAO_CONFIG = {
     "enabled": bool(KAKAO_REST_API_KEY),        # local_secrets.py가 없으면 자동으로 꺼짐
     "rest_api_key": KAKAO_REST_API_KEY,
     "redirect_uri": "https://localhost:3000",   # 카카오 로그인 설정에 등록한 Redirect URI와 동일해야 함
     "news_per_ticker": 2,                       # 보유 종목당 첨부할 뉴스 헤드라인 개수
+}
+
+# dividend_bot.py 전용 카카오 앱. my_holdings_report.py와 같은 앱(KAKAO_CONFIG)을 쓰면
+# 카카오톡 메시지에 뜨는 "APP OOO" 발신 앱 라벨이 똑같이 떠서 구별이 안 되므로,
+# developers.kakao.com에 별도 앱을 하나 더 만들어 여기 연결한다 (설정법은 README 참고).
+DIVIDEND_KAKAO_CONFIG = {
+    "enabled": bool(DIVIDEND_KAKAO_REST_API_KEY),
+    "rest_api_key": DIVIDEND_KAKAO_REST_API_KEY,
+    "redirect_uri": "https://localhost:3000",
 }
 
 MY_HOLDINGS_CONFIG = {

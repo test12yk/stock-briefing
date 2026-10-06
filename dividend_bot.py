@@ -19,7 +19,12 @@ PREFERRED_SHARE_OVERRIDES에서 보통주 corp_code + 공시상 종류주식명�
     python3 dividend_bot.py          # 공시 확인 후 있으면 카카오톡 발송 + 상태 저장
     python3 dividend_bot.py --test   # 카카오톡 발송/상태 저장 없이 콘솔에만 출력 (점검용)
 
-크론 등록 예) 30 17 * * 1-5 cd /path/to/stock-briefing && python3 dividend_bot.py >> dividend_log.txt 2>&1
+카카오톡 발송은 my_holdings_report.py와 다른 전용 카카오 앱(dividend_kakao_notify.py,
+DIVIDEND_KAKAO_CONFIG)을 쓴다 - 카카오톡에 뜨는 "APP OOO" 발신 앱 라벨을 서로 다르게
+보이게 하려는 의도적 분리다. 최초 1회 `python3 dividend_kakao_setup.py`로 인증 필요
+(README.md의 "배당봇 전용 카카오 앱 설정" 참고).
+
+크론 등록 예) 10 14 * * 1-5 cd /path/to/stock-briefing && python3 dividend_bot.py >> dividend_log.txt 2>&1
 """
 import io
 import json
@@ -32,8 +37,8 @@ from datetime import datetime, timedelta
 
 import requests
 
-from config import DIVIDEND_CONFIG
-from kakao_notify import send_kakao_message
+from config import DIVIDEND_CONFIG, DIVIDEND_KAKAO_CONFIG
+from dividend_kakao_notify import send_kakao_message
 
 try:
     from my_portfolio import MY_HOLDINGS
@@ -489,6 +494,12 @@ def main():
 
     if not DIVIDEND_CONFIG["enabled"]:
         raise SystemExit("local_secrets.py에 DART_API_KEY가 없습니다.")
+    if not test_mode and not DIVIDEND_KAKAO_CONFIG["enabled"]:
+        raise SystemExit(
+            "local_secrets.py에 DIVIDEND_KAKAO_REST_API_KEY가 없습니다. "
+            "developers.kakao.com에서 배당봇 전용 앱을 만든 뒤 키를 추가하세요 (README 참고). "
+            "--test로 실행하면 카톡 발송 없이 점검만 가능합니다."
+        )
 
     state = load_state()
     stock_positions, etf_positions = build_holdings_index()
