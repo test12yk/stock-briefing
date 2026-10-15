@@ -111,11 +111,19 @@ def _send_single(text: str) -> bool:
     return False
 
 
+_ORDER_MARKER_BUDGET = 10  # "(99/99)\n" 같은 순서 표시가 들어갈 여유 글자 수
+
+
 def send_kakao_message(text: str) -> bool:
-    """카카오톡 '나에게 보내기'로 메시지를 전송한다. 200자 초과 시 여러 건으로 나눠 보낸다."""
-    chunks = _split_message(text)
+    """카카오톡 '나에게 보내기'로 메시지를 전송한다. 200자 초과 시 여러 건으로 나눠 보내고,
+    2건 이상이면 각 메시지 맨 앞에 "(1/3)"처럼 순서를 붙여준다. 분할 자체를
+    KAKAO_TEXT_LIMIT보다 _ORDER_MARKER_BUDGET만큼 더 짧게 끊어서, 순서 표시를 붙여도
+    실제 200자 제한(과 180자 안전선)을 넘지 않는다 - 안 그러면 뒷부분(링크 등)이 잘릴 수 있다."""
+    chunks = _split_message(text, limit=KAKAO_TEXT_LIMIT - _ORDER_MARKER_BUDGET)
+    total = len(chunks)
     all_ok = True
-    for chunk in chunks:
-        if not _send_single(chunk):
+    for i, chunk in enumerate(chunks, 1):
+        payload = f"({i}/{total})\n{chunk}" if total > 1 else chunk
+        if not _send_single(payload):
             all_ok = False
     return all_ok
