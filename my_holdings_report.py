@@ -169,7 +169,7 @@ def build_report():
         for name in movers:
             headlines = fetch_news_headlines(name, news_n)
             for h in headlines:
-                news_lines.append(f"  · [{name}] {h}")
+                news_lines.append(f"  · [{name}] {h['title']}\n    {h['link']}")
         if news_lines:
             lines.append("\n📰 뉴스:")
             lines.extend(news_lines)
