@@ -49,7 +49,12 @@ def fetch_price(ticker: str):
         return None
 
 
-def build_report():
+def compute_positions():
+    """가격 조회 + 손익 계산까지 마친 상태를 반환.
+
+    build_report()와 agent_briefing.py(에이전트용 최소 컨텍스트 생성)가 공유해서 쓴다.
+    순수하게 build_report()의 기존 1)/2) 단계를 그대로 추출한 것으로, 동작은 바뀌지 않는다.
+    """
     # 1) 티커별 수량 합산 → 전체 평가액 계산용
     qty_by_ticker = defaultdict(float)
     name_by_ticker = {}
@@ -87,22 +92,48 @@ def build_report():
             pnl_pct = (price - avg_price) / avg_price * 100
             pnl_amount = h["qty"] * (price - avg_price)
             costed_positions.append({
-                "name": h["name"], "account": h["account"],
+                "name": h["name"], "ticker": h["ticker"], "account": h["account"],
                 "pnl_pct": pnl_pct, "pnl_amount": pnl_amount,
                 "invested": h["qty"] * avg_price, "current": h["qty"] * price,
             })
+
+    no_cost = sorted({h["name"] for h in MY_HOLDINGS if not h.get("avg_price")})
+
+    return {
+        "prices": prices, "stock_value": stock_value, "cash_value": cash_value,
+        "total_value": total_value, "failed": failed,
+        "costed_positions": costed_positions, "no_cost": no_cost,
+        "tickers": list(qty_by_ticker.keys()),  # 중복 제거된 보유 티커 전체 (agent_briefing.py의 당일 등락률 선정용)
+    }
+
+
+def build_report():
+    state = compute_positions()
+    stock_value, cash_value, total_value = state["stock_value"], state["cash_value"], state["total_value"]
+    failed, no_cost = state["failed"], state["no_cost"]
+    costed_positions = state["costed_positions"]
 
     total_invested = sum(p["invested"] for p in costed_positions)
     total_current = sum(p["current"] for p in costed_positions)
     total_pnl = total_current - total_invested
     total_pnl_pct = (total_pnl / total_invested * 100) if total_invested else 0.0
 
-    no_cost = sorted({h["name"] for h in MY_HOLDINGS if not h.get("avg_price")})
-
     ranked = sorted(costed_positions, key=lambda p: p["pnl_pct"], reverse=True)
     top_n = MY_HOLDINGS_CONFIG.get("top_movers_count", 3)
     gainers = ranked[:top_n]
     losers = sorted(costed_positions, key=lambda p: p["pnl_pct"])[:top_n]
+
+    # 같은 종목명이 여러 계좌에 걸쳐 있으면(예: 삼성전자를 ISA/일반계좌 둘 다 보유) 어느 계좌인지
+    # 구분되게 계좌명을 붙인다. 계좌가 하나뿐인 종목명은 지금처럼 이름만 표시.
+    accounts_by_name = defaultdict(set)
+    for p in costed_positions:
+        accounts_by_name[p["name"]].add(p["account"])
+
+    def _format_position(p):
+        label = p["name"]
+        if len(accounts_by_name[p["name"]]) > 1:
+            label += f" [{p['account']}]"
+        return f"  {label} {p['pnl_pct']:+.1f}% ({p['pnl_amount']:+,.0f}원)"
 
     today = datetime.now().strftime("%Y-%m-%d")
     lines = [
@@ -119,11 +150,11 @@ def build_report():
     if gainers:
         lines.append("\n🏆 수익률 top:")
         for p in gainers:
-            lines.append(f"  {p['name']} {p['pnl_pct']:+.1f}% ({p['pnl_amount']:+,.0f}원)")
+            lines.append(_format_position(p))
     if losers:
         lines.append("\n💧 수익률 bottom:")
         for p in losers:
-            lines.append(f"  {p['name']} {p['pnl_pct']:+.1f}% ({p['pnl_amount']:+,.0f}원)")
+            lines.append(_format_position(p))
 
     if failed:
         lines.append(f"\n⚠ 시세 조회 실패: {', '.join(failed)}")
